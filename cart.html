@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Orneva | Cart</title>
+
+  <!-- Your global styles -->
+  <link rel="stylesheet" href="style.css">
+
+  <!-- Font Awesome (for cart icon in navbar) -->
+  <link rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+</head>
+<body class="cart-page">
+  <!-- Header (matches your site) -->
+  <section id="header">
+    <a href="index.html"><img src="img/logo.png" class="logo" alt="Orneva Logo"></a>
+    <div>
+      <ul id="navbar">
+        <li><a href="index.html">Home</a></li>
+        <li><a href="shop.html">Shop</a></li>
+        <li><a href="contact.html">Contact</a></li>
+        <li><a class="active" href="cart.html"><i class="fa-solid fa-cart-shopping"></i></a></li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- Cart -->
+  <div id="cart" class="cart-container">
+    <!-- Left: Items -->
+    <div class="cart-left">
+      <h1>Your Cart</h1>
+      <div id="cart-items" class="table-wrap"></div>
+    </div>
+
+    <!-- Right: Summary -->
+    <aside class="cart-right">
+      <div class="summary">
+        <h3>Order summary</h3>
+        <div class="line"><span>Subtotal</span><span id="summary-subtotal">$0.00</span></div>
+        <div class="line"><span>Shipping</span><span id="summary-shipping">Free</span></div>
+        <hr style="border:none;border-top:1px solid rgba(0,0,0,0.06);margin:10px 0;">
+        <div class="total"><span>Total</span><span id="summary-total">$0.00</span></div>
+        <button class="checkout-btn" id="checkout-btn">Proceed to Checkout</button>
+      </div>
+    </aside>
+  </div>
+
+  <!-- Footer -->
+  <footer class="section-p1">
+    <div class="copyright">
+      <p>&#169; copyright reserved, 2021, Ecommerce</p>
+    </div>
+  </footer>
+
+  <!-- Inline script (works without external cart.js) -->
+  <script>
+    (function () {
+      const itemsContainer = document.getElementById('cart-items');
+      const subtotalEl = document.getElementById('summary-subtotal');
+      const totalEl = document.getElementById('summary-total');
+
+      function parsePrice(val) {
+        if (typeof val === 'number') return val;
+        if (!val) return 0;
+        return parseFloat(String(val).replace(/[^0-9.\-]+/g, '')) || 0;
+      }
+
+      // Build a grouping key so identical products collapse into 1 row with quantity
+      function keyFor(item) {
+        const name = item.name || '';
+        const brand = item.brand || '';
+        const price = typeof item.price === 'number' ? item.price.toFixed(2) : (item.price || '');
+        const img = item.img || '';
+        return [name, brand, price, img].join('||');
+      }
+
+      function loadCart() {
+        return JSON.parse(localStorage.getItem('cart')) || [];
+      }
+
+      function saveCart(cart) {
+        localStorage.setItem('cart', JSON.stringify(cart));
+      }
+
+      function getGroupedCart() {
+        const raw = loadCart();
+        const map = new Map();
+        for (const item of raw) {
+          const k = keyFor(item);
+          if (!map.has(k)) {
+            map.set(k, { item: { ...item }, qty: 1 });
+          } else {
+            map.get(k).qty += 1;
+          }
+        }
+        // produce an array with stable order
+        return Array.from(map.entries()).map(([k, v]) => ({ key: k, ...v }));
+      }
+
+      function render() {
+        const raw = loadCart();
+        const groups = getGroupedCart();
+
+        // Empty cart
+        if (raw.length === 0 || groups.length === 0) {
+          itemsContainer.innerHTML = '<div class="empty-cart">Your cart is empty.</div>';
+          subtotalEl.textContent = '$0.00';
+          totalEl.textContent = '$0.00';
+          return;
+        }
+
+        // Compute subtotal
+        let subtotal = 0;
+
+        const rowsHTML = groups.map(({ key, item, qty }) => {
+          const name = item.name || 'Unnamed';
+          const brand = item.brand || '';
+          const img = item.img || 'img/placeholder.png';
+          const unit = parsePrice(item.price);
+          const itemTotal = unit * qty;
+          subtotal += itemTotal;
+
+          const priceDisplay = typeof item.price === 'number'
+            ? '$' + unit.toFixed(2)
+            : (item.price || '$' + unit.toFixed(2));
+
+          return `
+            <tr data-key="${key}">
+              <td>
+                <div class="product-cell">
+                  <img src="${img}" alt="${name}">
+                  <div class="product-meta">
+                    <span class="title">${name}</span>
+                    <span class="brand">${brand}</span>
+                  </div>
+                </div>
+              </td>
+              <td class="price">${priceDisplay}</td>
+              <td>
+                <div class="qty">
+                  <button class="qty-btn" data-action="dec" aria-label="Decrease">−</button>
+                  <input type="text" value="${qty}" aria-label="Quantity" readonly>
+                  <button class="qty-btn" data-action="inc" aria-label="Increase">+</button>
+                </div>
+              </td>
+              <td class="row-total">$${itemTotal.toFixed(2)}</td>
+              <td>
+                <button class="remove-btn" aria-label="Remove item">Remove</button>
+              </td>
+            </tr>
+          `;
+        }).join('');
+
+        const tableHTML = `
+          <table class="cart-table">
+            <thead>
+              <tr>
+                <th>Product</th>
+                <th>Price</th>
+                <th>Quantity</th>
+                <th>Total</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>${rowsHTML}</tbody>
+          </table>
+        `;
+
+        itemsContainer.innerHTML = tableHTML;
+
+        // Update summary
+        subtotalEl.textContent = '$' + subtotal.toFixed(2);
+        totalEl.textContent = '$' + subtotal.toFixed(2); // shipping is Free
+
+        // Wire up buttons
+        wireRowEvents();
+      }
+
+      // Helpers to increase/decrease/remove by key (match on name/brand/price/img)
+      function incByKey(key) {
+        const cart = loadCart();
+        // Find example item from groups to duplicate
+        const groups = getGroupedCart();
+        const g = groups.find(g => g.key === key);
+        if (!g) return;
+        cart.push({ ...g.item }); // duplicate one more
+        saveCart(cart);
+      }
+
+      function decByKey(key) {
+        const cart = loadCart();
+        // remove first matching item
+        const [name, brand, priceStr, img] = key.split('||');
+        const unit = parsePrice(priceStr);
+        const idx = cart.findIndex(it =>
+          (it.name || '') === name &&
+          (it.brand || '') === brand &&
+          parsePrice(it.price) === unit &&
+          (it.img || '') === img
+        );
+        if (idx > -1) {
+          cart.splice(idx, 1);
+          saveCart(cart);
+        }
+      }
+
+      function removeAllByKey(key) {
+        const cart = loadCart();
+        const [name, brand, priceStr, img] = key.split('||');
+        const unit = parsePrice(priceStr);
+        const filtered = cart.filter(it =>
+          !(
+            (it.name || '') === name &&
+            (it.brand || '') === brand &&
+            parsePrice(it.price) === unit &&
+            (it.img || '') === img
+          )
+        );
+        saveCart(filtered);
+      }
+
+      function wireRowEvents() {
+        const tbody = itemsContainer.querySelector('tbody');
+        if (!tbody) return;
+
+        tbody.addEventListener('click', (e) => {
+          const row = e.target.closest('tr[data-key]');
+          if (!row) return;
+          const key = row.getAttribute('data-key');
+
+          // Qty buttons
+          if (e.target.classList.contains('qty-btn')) {
+            const action = e.target.getAttribute('data-action');
+            if (action === 'inc') incByKey(key);
+            if (action === 'dec') decByKey(key);
+            render();
+            return;
+          }
+
+          // Remove entire product group
+          if (e.target.classList.contains('remove-btn')) {
+            removeAllByKey(key);
+            render();
+            return;
+          }
+        });
+      }
+
+      // Simple demo for checkout button
+      document.getElementById('checkout-btn').addEventListener('click', () => {
+        alert('Checkout flow not implemented yet 🙂');
+      });
+
+      // First render
+      render();
+    })();
+  </script>
+</body>
+</html>
